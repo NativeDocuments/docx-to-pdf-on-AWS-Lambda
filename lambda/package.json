@@ -1,0 +1,21 @@
+{
+  "name": "docx-to-pdf-on-AWS-Lambda",
+  "version": "1.0.0",
+  "description": "Microsoft Word doc/docx to PDF conversion, using S3 buckets",
+  "main": "index.js",
+  "repository": "https://github.com/NativeDocuments/docx-to-pdf-on-AWS-Lambda",
+  "author": "Native Documents",
+  "license": "MIT",
+  "scripts": {
+    "test": "tests/unit/"
+  },
+  "devDependencies": {
+    "chai": "^4.1.2",
+    "mocha": "^5.1.1"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.382.0",
+    "lambda-log": "^2.1.0",
+    "@nativedocuments/docx-wasm": "2.2.8-1547344486"
+  }
+}

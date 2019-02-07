@@ -12,6 +12,8 @@ This app uses Native Documents' [docx-wasm](https://www.npmjs.com/package/@nativ
 
 ## Installation and Getting Started
 
+Direct link to deploy https://serverlessrepo.aws.amazon.com/applications/arn:aws:serverlessrepo:us-east-1:992364115735:applications~docx-to-pdf or search for "docx-to-pdf" in the Serverless Application Repository.
+
 Please double check you are in the AWS region you intend; this needs to be the same region as the bucket which will contain the Word documents you wish to convert.
 
 After you click "Deploy" (bottom right corner), you'll need to wait a minute or so as CloudFormation creates resources.  When this is complete, you should see a green tick saying "Your application has been deployed"

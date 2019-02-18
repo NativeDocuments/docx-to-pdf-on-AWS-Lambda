@@ -2,13 +2,15 @@
 
 ## Description
 
-Convert Word documents created in a source S3 bucket to PDF, saving the PDF to a destination S3 bucket.
+Convert a Word document (.doc or .docx) in a source S3 bucket to PDF, saving the PDF to a destination S3 bucket.
 
-In response to an S3 "created" event, if its is a Word (.doc or .docx) document, this application converts the document to PDF.
+This Lambda can be invoked from an AWS Step Function, or in response to an S3 "created" event.  It could 
+easily be modified to support other triggers.  You probably still want to use S3 buckets, to workaround
+any limits on request/response size.
 
 Thanks to Lambda's concurrency, this approach is well-suited to variable bulk/batch higher-volume conversion workloads.
 
-This app uses Native Documents' [docx-wasm](https://www.npmjs.com/package/@nativedocuments/docx-wasm) to perform the conversion. It does not use LibreOffice etc.  
+This app uses Native Documents' [docx-wasm](https://www.npmjs.com/package/@nativedocuments/docx-wasm) to perform the conversion. It does not use LibreOffice etc.
 
 ## Installation and Getting Started
 
@@ -16,17 +18,49 @@ Please double check you are in the AWS region you intend; this needs to be the s
 
 After you click "Deploy" (bottom right corner), you'll need to wait a minute or so as CloudFormation creates resources.  When this is complete, you should see a green tick saying "Your application has been deployed"
 
-Now go into the function: Lambda > Functions then configure an S3 trigger, environment variables and execution role as explained below.
+Now go into the function: Lambda > Functions then configure an S3 trigger (or your step function), environment variables and execution role as explained below.
 
 ### Trigger
 
-This function responds to S3 ObjectCreated events. So in "Designer > Add triggers", click "S3".  The "Configure triggers" dialog appears.  
+This function can respond to S3 ObjectCreated events. In this case, the output PDF is the input key + .pdf.
+
+To configure the trigger, in "Designer > Add triggers", click "S3".  The "Configure triggers" dialog appears.  
 
 * Select a bucket  (any time a docx is added to this bucket, the function will run)
 
 * Verify that "all object create events" is selected (or choose PUT POST or COPY)
 
 Click "Add" (bottom right), then "Save" (top right).
+
+### AWS Step Function
+
+If you want to use docx-to-pdf in an AWS Step Function, you don't need the above trigger.
+
+Instead, add a state of type task.  Here is a working demo step function:
+
+```
+{
+  "Comment": "docx-to-pdf conversion step",
+  "StartAt": "DocxToPdf",
+  "States": {
+    "DocxToPdf": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-west-2:992364999735:function:cloud9-serverlessrepo-docx-to-pdf-S3Fn-Z2UN6XIPAZ8B",
+  "Parameters": {
+       "source_bucket.$": "$.source_bucket",
+       "source_key.$": "$.source_key",
+       "target_bucket.$": "$.target_bucket",
+       "target_key.$": "$.target_key"    
+  },
+      "End": true
+    }
+  }
+}
+
+```
+
+Replace the Resource value with the ARN for your Lambda (shown in the Lambda Designer, top right)
+
 
 ### Registration
 
@@ -44,9 +78,12 @@ On the same screen in the Lambda Management Console for this function, scroll do
 
 * **ND_DEV_SECRET**: as above
 
+* **DEPLOY_ENV**:  if 'PROD', don't write debug level logging 
+
+If you are using an S3 trigger (as opposed to a step function), you also need:
+
 * **S3_BUCKET_OUTPUT**: the name of the S3 bucket to which the PDF will be saved (if blank, it should write to the input event bucket)
 
-* **DEPLOY_ENV**:  if 'PROD', don't write debug level logging 
 
 ### Execution role
 
@@ -67,9 +104,29 @@ Without GetObject permission on the triggering bucket and PutObject permission o
 
 ### Confirm installation is successful
 
-Now you can try it, by copying a Word document (doc or docx) into the source S3 bucket.
+### Trigger
+
+If you configured the S3 trigger, you can try it, by copying a Word document (doc or docx) into the S3 bucket you have set the trigger on.
 
 To verify it works, look for a PDF in your output bucket, or check the logs in cloudwatch
+
+### AWS Step Function
+
+If you used the sample step function, you can "start execution", then for the input, use something like:
+
+```
+{
+   "source_bucket": "MyDocxBucket",
+   "source_key": "path/to/my/docx",
+   "target_bucket": "MyPDFBucket",
+   "target_key": "path/to/my/PDF"
+}
+```
+
+substituting your own values.
+
+To verify it works, check the execution status and/or event history, or look for a PDF in your target bucket at target key.  You can also check the logs in cloudwatch
+
 
 
 ## Logging
@@ -96,9 +153,13 @@ Now you can use your favourite lambda development environment...
 
 If you are having trouble, please check the CloudWatch logs.
 
-For each conversion job, "RESULT: Success" or "RESULT: Failed" will be logged.  In the case of "RESULT: Failed", the source document will be copied to the desitnation bucket under the key "BROKEN".  This makes it easy to check for conversion failures.
+For each conversion job, "RESULT: Success" or "RESULT: Failed" will be logged.  
 
-If there is a failure, the reason for that failure will appear in the CloudWatch logs.
+Checking for conversion failures:
+
+* if you are using an S3 trigger, then in the case of "RESULT: Failed", the source document will be copied to the desitnation bucket under the key "BROKEN".  This makes it easy to check for conversion failures.  If there is a failure, the reason for that failure will appear in the CloudWatch logs.
+
+* if you are using the demo step function, the in the Step Functions Management Console, you can look for executions with status "failed".  If you click into one of these, you'll see the reason in the execution event history, under "ExecutionFailed".
 
 Here is what may be going wrong:
 
@@ -115,6 +176,6 @@ Here is what may be going wrong:
 
 ## Getting Help
 
-If you continue to have problems, please ask a question on StackOverflow, using tags #docx-wasm, #ms-word, #pdf, #aws-lambda and #amazon-s3 as appropriate.
+If you continue to have problems, please ask a question on StackOverflow, using tags #docx-wasm, #ms-word, #pdf, #aws-lambda, and #amazon-s3 or #aws-step-functions as appropriate, or [post an issue on GitHub](https://github.com/NativeDocuments/docx-to-pdf-on-AWS-Lambda/issues).
 
 

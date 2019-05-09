@@ -4,7 +4,7 @@
 
 Convert a Word document (.doc or .docx) in a source S3 bucket to PDF, saving the PDF to a destination S3 bucket.
 
-This Lambda can be invoked from an AWS Step Function, or in response to an S3 "created" event.  It could 
+This Lambda can be invoked from an AWS Step Function, or in response to an S3 "created" or SQS event.  It could 
 easily be modified to support other triggers.  You probably still want to use S3 buckets, to workaround
 any limits on request/response size.
 
@@ -20,9 +20,9 @@ Please double check you are in the AWS region you intend; this needs to be the s
 
 After you click "Deploy" (bottom right corner), you'll need to wait a minute or so as CloudFormation creates resources.  When this is complete, you should see a green tick saying "Your application has been deployed"
 
-Now go into the function: Lambda > Functions then configure an S3 trigger (or your step function), environment variables and execution role as explained below.
+Now go into the function: Lambda > Functions then configure an S3 or SQS trigger (or your step function), environment variables and execution role as explained below.
 
-### Trigger
+### S3 Trigger
 
 This function can respond to S3 ObjectCreated events. In this case, the output PDF is the input key + .pdf.
 
@@ -34,9 +34,58 @@ To configure the trigger, in "Designer > Add triggers", click "S3".  The "Config
 
 Click "Add" (bottom right), then "Save" (top right).
 
+### SQS Trigger
+
+This function can respond to an SQS event, the event being a message is available on a queue you have configured in the Lambda console ("Designer > Add triggers", click "SQS").
+
+The message should contain a body like the following:
+
+```
+    {
+        "Records": [
+        {
+            "messageId": "19dd0b57-b21e-4ac1-bd88-01bbb068cb78",
+            "receiptHandle": "MessageReceiptHandle",
+            "body": { 
+                "source_bucket": "YOUR_INPUT_BUCKET_NAME", 
+                "source_key": "YOUR.docx", 
+                "target_bucket": "YOUR_OUTPUT_BUCKET_NAME", 
+                "target_key": "YOUR.pdf" 
+            },
+            "attributes": {
+            "ApproximateReceiveCount": "1",
+            "SentTimestamp": "1523232000000",
+            "SenderId": "123456789012",
+            "ApproximateFirstReceiveTimestamp": "1523232000001"
+            },
+            "messageAttributes": { "correlationId": "foo123"},
+            "md5OfBody": "7b270e59b47ff90a553787216d55d91d",
+            "eventSource": "aws:sqs",
+            "eventSourceARN": "arn:aws:sqs:us-west-2:123456789012:MyQueue",
+            "awsRegion": "us-west-2"
+        }
+        ]
+    }
+```
+
+The body tells the function where to find the input docx, and where to write the output PDF.
+
+correlationId is as optional message attribute you can use if you wish.
+
+The function will also write out an SQS message, if you have set an environment variable named SQS_WRITE_QUEUE_URL, specifying a queue. 
+
+This message contains body:
+
+```
+{"bucket":"YOUR_OUTPUT_BUCKET_NAME","key":"YOUR.pdf"}
+```
+
+and if the function was triggered by an SQS message with a correlationId, that
+correlationId may be found in the message attributes.
+
 ### AWS Step Function
 
-If you want to use docx-to-pdf in an AWS Step Function, you don't need the above trigger.
+If you want to use docx-to-pdf in an AWS Step Function, you don't need either of the above triggers.
 
 Instead, add a state of type task.  Here is a working demo step function:
 
@@ -61,7 +110,9 @@ Instead, add a state of type task.  Here is a working demo step function:
 
 ```
 
-Replace the Resource value with the ARN for your Lambda (shown in the Lambda Designer, top right)
+Replace the Resource value with the ARN for your Lambda (shown in the Lambda Designer, top right).
+
+Ensure that step function's IAM role has permission to execute the Lambda.
 
 
 ### Registration
@@ -82,9 +133,15 @@ On the same screen in the Lambda Management Console for this function, scroll do
 
 * **DEPLOY_ENV**:  if 'PROD', don't write debug level logging 
 
-If you are using an S3 trigger (as opposed to a step function), you also need:
+If you are using an S3 trigger, you also need:
 
 * **S3_BUCKET_OUTPUT**: the name of the S3 bucket to which the PDF will be saved (if blank, it should write to the input event bucket)
+
+If not, you can remove S3_BUCKET_OUTPUT
+
+If you want to write an SQS message when a conversion is done, you also need:
+
+* **SQS_WRITE_QUEUE_URL**: the URL of the queue to which the message should be sent
 
 
 ### Execution role
@@ -104,13 +161,26 @@ Choose or create an execution role. In IAM, confirm that role's policies include
 
 Without GetObject permission on the triggering bucket and PutObject permission on the output bucket, you'll get Access Denied errors.
 
+If you are using SQS, also ensure that the Lambda's IAM role has permission to access SQS.
+
+
 ### Confirm installation is successful
 
-### Trigger
+### S3 Trigger
 
 If you configured the S3 trigger, you can try it, by copying a Word document (doc or docx) into the S3 bucket you have set the trigger on.
 
 To verify it works, look for a PDF in your output bucket, or check the logs in cloudwatch
+
+### SQS Trigger
+
+If you configured the SQS trigger, you can try it from the Lambda console 
+by configuring a test event based on the Records json above.
+
+To verify it works, look for a PDF in the output bucket you specified, or check the logs in cloudwatch.
+
+If you specified SQS_WRITE_QUEUE_URL, you can check for an output message 
+in the SQS Management Console (Queue Actions > View/Delete Messages).
 
 ### AWS Step Function
 
@@ -128,8 +198,6 @@ If you used the sample step function, you can "start execution", then for the in
 substituting your own values.
 
 To verify it works, check the execution status and/or event history, or look for a PDF in your target bucket at target key.  You can also check the logs in cloudwatch
-
-
 
 ## Logging
 

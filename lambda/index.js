@@ -9,6 +9,7 @@ const log = require('lambda-log');
 const Format = require("@nativedocuments/docx-wasm/formats");
 
 // ND_LICENSE_URL, or ND_DEV_ID and ND_DEV_SECRET are read from environment
+// If using the S3 trigger, S3_BUCKET_OUTPUT should be set there as well
 // See README for more details
 
 //  debug messages?  
@@ -38,6 +39,8 @@ var INITIALISED = false;
 exports.handler = async function(event, context) {
     
     var isStep = false;
+    var isSQS  = false;
+    var correlationId; // optional, 
     if (/* our AWS Step Function */ event.source_bucket ) {
 
         isStep = true;
@@ -81,12 +84,61 @@ exports.handler = async function(event, context) {
             return;
         }
 
+    } else if (/* SQS trigger */ event.Records && event.Records[0].eventSource === 'aws:sqs') {
+        
+        isSQS = true; 
+        
+        /*  It listens to the specific queue configured in Lambda.
+         * 
+         *  You can specify the batch size, but here we assume batch size = 1.
+         * 
+            {
+              "Records": [
+                {
+                  "messageId": "19dd0b57-b21e-4ac1-bd88-01bbb068cb78",
+                  "receiptHandle": "MessageReceiptHandle",
+                  "body": { 
+                    "source_bucket": "YOUR_INPUT_BUCKET_NAME", 
+                    "source_key": "YOUR.docx", 
+                    "target_bucket": "YOUR_OUTPUT_BUCKET_NAME", 
+                    "target_key": "YOUR.pdf" 
+                  },
+                  "attributes": {
+                    "ApproximateReceiveCount": "1",
+                    "SentTimestamp": "1523232000000",
+                    "SenderId": "123456789012",
+                    "ApproximateFirstReceiveTimestamp": "1523232000001"
+                  },
+                  "messageAttributes": { "correlationId": "foo123"},
+                  "md5OfBody": "7b270e59b47ff90a553787216d55d91d",
+                  "eventSource": "aws:sqs",
+                  "eventSourceARN": "arn:aws:sqs:us-west-2:123456789012:MyQueue",
+                  "awsRegion": "us-west-2"
+                }
+              ]
+            }
+        *
+        */
+        
+        const { body } = event.Records[0];
+        log.debug(body);  
+        
+        srcBucket = body.source_bucket;
+        srcKey = body.source_key;    
+
+        dstBucket = body.target_bucket;
+        dstKey = body.target_key; 
+        
+        correlationId = event.Records[0].messageAttributes.correlationId;
+        //.debug(correlationId);  
+        
+
     } else {
         // see https://stackoverflow.com/questions/41814750/how-to-know-event-souce-of-lambda-function-in-itself
         // for other event sources
         
         // Modify to suit your usecase
-        log.warn("Unexpected invokation");
+        log.warn("Unexpected invocation");
         log.warn(event);
         return;
     }    
@@ -127,6 +179,7 @@ exports.handler = async function(event, context) {
             return;
         }
     }
+    var sqsQueueUrl = process.env.SQS_WRITE_QUEUE_URL;
 
     // Actually execute the steps  
     var data;
@@ -145,14 +198,53 @@ exports.handler = async function(event, context) {
                 Body: new Buffer(output) /* arrayBuffer to Buffer  */,
                 ContentType: mimeType
             }).promise();  
-        log.info('RESULT: Success ' + dstKey) /* Log analysis regex matching */
+        log.info('RESULT: Success ' + dstKey); /* Log analysis regex matching */
+
+        //log.info(sqsQueueUrl);
+        if (sqsQueueUrl) { 
+            // send SQS message
+            //log.info("write to sqs");
+
+            // Create an SQS service object
+            var sqs = new AWS.SQS({apiVersion: '2012-11-05'});
+            
+            var payload = {
+                        bucket: dstBucket, 
+                        key: dstKey
+                    };            
+            
+            var params = {
+                MessageBody: JSON.stringify(payload),
+                QueueUrl: sqsQueueUrl
+            }; 
+
+            if (correlationId) {
+                params = Object.assign( {
+                                    MessageAttributes: { "correlationId": {
+                                                                DataType: "String",
+                                                                StringValue: correlationId
+                                                                }
+                                    }
+                                }, params);
+            }
+
+            log.info(params);
+            
+            sqs.sendMessage(params, function(err, data) {
+                if (err) {
+                    log.error("Error", err);
+                } else {
+                    //log.debug("Success", data.MessageId);
+                }
+            });
+        }
         
         // Return a result (useful where invoked from a step function)
-        return { 'RESULT' : 'Success', "key" : dstKey }
+        return { 'RESULT' : 'Success', "key" : dstKey };
         
     } catch (e) {
 
-        const msg = "" + e;
+        //const msg = "" + e;
         if (e) log.error(e);
         
         if (isStep) {
@@ -160,7 +252,10 @@ exports.handler = async function(event, context) {
             // Return a result (step function can catch this)
             throw e;
         }
-
+        if (sqsQueueUrl) { 
+            // TODO: write SQS message on failure?
+        }
+        
         /* For S3 trigger, broken documents saved to dstBucket/BROKEN
            To get help, please note the contents of the assertion,
            together with the document which caused it.
@@ -170,7 +265,7 @@ exports.handler = async function(event, context) {
         /* unless */ 
         if (dstBucket == srcBucket) /* to avoid repetitively processing the same document */ {
             log.error("RESULT: Failed " + srcKey);
-            log.debug("cowardly refusing to write broken document to srcBucket!")
+            log.debug("cowardly refusing to write broken document to srcBucket!");
             return;
         }
         var ext = srcKey.substr(srcKey.lastIndexOf('.') + 1);
@@ -196,8 +291,9 @@ exports.handler = async function(event, context) {
                 }).promise(); 
         } catch (putErr) {
             log.error(putErr);
-            log.error("Problem saving bug doc " + dstKey )
+            log.error("Problem saving bug doc " + dstKey );
         }
         
     }
 };
+

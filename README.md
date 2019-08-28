@@ -114,6 +114,36 @@ Replace the Resource value with the ARN for your Lambda (shown in the Lambda Des
 
 Ensure that step function's IAM role has permission to execute the Lambda.
 
+### AWS API Gateway Trigger
+
+The function can respond to a API request. You can trigger it using a GET or a POST request.
+
+When triggering the function via a GET request, the source bucket and source key should be passed in as query parameters.
+
+```
+https://sample-api.execute-api.us-east-1.amazonaws.com/path/to/resource&source_bucket=example_bucket&source_key=example_key
+```
+
+When triggering the function via a POST request, the source bucket and source key should be passed in the body payload.
+
+```
+{
+    "source_bucket": "MyDocxBucket",
+    "source_key": "path/to/my/docx"
+}
+```
+
+The function will respond with a success status and the stringified destination key.
+
+```
+{
+    "statusCode": 200,
+    "body": "path/to/my/PDF"
+}
+```
+
+Ensure that the API Gateway resource has Lambda Proxy Integration enabled.
+
 
 ### Registration
 
@@ -198,6 +228,10 @@ If you used the sample step function, you can "start execution", then for the in
 substituting your own values.
 
 To verify it works, check the execution status and/or event history, or look for a PDF in your target bucket at target key.  You can also check the logs in cloudwatch
+
+### AWS API Gateway
+
+If you configure the API Gateway resource, you can test this by adding a document to your source bucket then running the test feature on the API Gateway resource. To verify that it works, check the destination bucket for the target document or check the CloudWatch logs.
 
 ## Logging
 

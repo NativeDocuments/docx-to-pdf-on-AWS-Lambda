@@ -34,12 +34,13 @@ var INITIALISED = false;
 /**
  * Lambda which converts an S3 object.  
  * It can be invoked from an AWS Step Function,
- * or by an S3 trigger.   
+ * an S3 trigger, or an API Gateway request.   
  */
 exports.handler = async function(event, context) {
     
     var isStep = false;
     var isSQS  = false;
+    var isAPI = false;
     var correlationId; // optional, 
     if (/* our AWS Step Function */ event.source_bucket ) {
 
@@ -132,6 +133,43 @@ exports.handler = async function(event, context) {
         correlationId = event.Records[0].messageAttributes.correlationId;
         //.debug(correlationId);  
         
+
+    } else if(/* API Gateway Trigger */ event.httpMethod){
+
+        isAPI = true;
+
+        if(event.httpMethod === "GET"){
+            // extract source bucket and source key from query string parameters
+            var {queryStringParameters} = event;
+            // Object key may have unicode non-ASCII characters.
+            srcBucket = decodeURIComponent(queryStringParameters.source_bucket);
+            srcKey = decodeURIComponent(queryStringParameters.source_key);
+
+        } else if (event.httpMethod === "POST"){
+            // extract source bucket and source key from response payload
+            var body = JSON.parse(event.body);
+            srcBucket = body.source_bucket;
+            srcKey = body.source_key;
+
+        } else{
+            log.error("Unsupported HTTP method: ", event.httpMethod)
+            return;
+        }
+        // if dstBucket is undefined, we'll use source bucket.
+        dstBucket = process.env.S3_BUCKET_OUTPUT;
+        if (dstBucket === undefined) {
+            dstBucket = srcBucket;
+        }
+
+        // dstKey is computed below
+        if (outputAs==Format.DOCX) {
+            dstKey    = srcKey + ".docx";
+        } else if (outputAs==Format.PDF) {
+            dstKey    = srcKey + ".pdf";
+        } else {
+            log.error("Unsupported output format " + outputAs);
+            return;
+        }
 
     } else {
         // see https://stackoverflow.com/questions/41814750/how-to-know-event-souce-of-lambda-function-in-itself
@@ -239,6 +277,11 @@ exports.handler = async function(event, context) {
             });
         }
         
+        //return a sucess result for API trigger
+        if(isAPI){
+            return {statusCode: 200, body: JSON.stringify(dstKey)}
+        }
+
         // Return a result (useful where invoked from a step function)
         return { 'RESULT' : 'Success', "key" : dstKey };
         

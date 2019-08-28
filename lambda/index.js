@@ -76,9 +76,9 @@ exports.handler = async function(event, context) {
         
         // dstKey is computed below
         if (outputAs==Format.DOCX) {
-            dstKey    = srcKey + ".docx";
+            dstKey    = srcKey.replace(/\.doc/, "") + ".docx";
         } else if (outputAs==Format.PDF) {
-            dstKey    = srcKey + ".pdf";
+            dstKey    = srcKey.replace(/\.docx?/, "") + ".pdf";
         } else {
             log.error("Unsupported output format " + outputAs);
             return;

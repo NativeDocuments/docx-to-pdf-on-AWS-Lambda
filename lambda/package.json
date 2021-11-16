@@ -14,7 +14,7 @@
     "mocha": "^5.1.1"
   },
   "dependencies": {
-    "aws-sdk": "^2.382.0",
+    "aws-sdk": "^2.814.0",
     "lambda-log": "^2.1.0",
     "@nativedocuments/docx-wasm": "2.2.8-1547344486"
   }
